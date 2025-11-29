@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>SKOV Humidity Offset – v1.4</title>
+  <title>SKOV Humidity Offset – v1.5</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     body {
@@ -123,16 +123,23 @@
     .conf-high { color: #4ade80; font-weight: 600; }
     .conf-med  { color: #fbbf24; font-weight: 600; }
     .conf-low  { color: #f87171; font-weight: 600; }
+
+    .summary-pre {
+      white-space: pre-wrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.85rem;
+      margin-top: 6px;
+    }
   </style>
 </head>
 <body>
 
-  <div class="version">v1.4 – 29 Nov 2025</div>
+  <div class="version">v1.5 – 29 Nov 2025</div>
 
   <div class="card">
     <h1>SKOV Humidity Offset</h1>
     <p class="sub">
-      Target Fluke humidity • Offset limit ±10 • Auto SKOV≈Fluke+15–20% • Setpoint + Confidence indicator
+      Target Fluke humidity • Offset limit ±10 • Internal SKOV≈Fluke+15–20% band • Setpoint + Confidence indicator
     </p>
 
     <label for="desired">Target Fluke humidity (% RH)</label>
@@ -202,6 +209,12 @@
       <div id="confidenceDetail"></div>
     </div>
 
+    <!-- MINI REPORT FOR SCREENSHOT -->
+    <div id="summaryBox" class="info-box">
+      <div class="info-title">Mini report – for your records</div>
+      <div class="summary-pre" id="summaryText"></div>
+    </div>
+
   </div><!-- card -->
 
   <script>
@@ -236,7 +249,8 @@
           residual: 0,
           fluke: null,
           skov: null,
-          diff: null
+          diff: null,
+          newOffset: null
         };
       }
 
@@ -269,7 +283,8 @@
         residual: residual,
         fluke: fluke,
         skov: skov,
-        diff: skov - fluke
+        diff: skov - fluke,
+        newOffset: newOffset
       };
     }
 
@@ -280,7 +295,7 @@
 
       if (!s1.used && !s2.used) {
         box.style.display = "none";
-        return;
+        return { level: null, reasons: [], labelText: "" };
       }
 
       let level = "high";
@@ -348,6 +363,8 @@
       } else {
         detail.textContent = "No major issues detected between Sensor 1 and Sensor 2 readings.";
       }
+
+      return { level, reasons, labelText: label.textContent || label.innerText };
     }
 
     function calc() {
@@ -390,24 +407,75 @@
       if (s1.used && Math.abs(s1.residual) > 1e-6) residuals.push(s1.residual);
       if (s2.used && Math.abs(s2.residual) > 1e-6) residuals.push(s2.residual);
 
+      let setpointMsg = "";
+      let newSetpoint = null;
+
       if (residuals.length === 0) {
         setpointBox.style.display = "block";
-        setpointText.textContent =
+        setpointMsg =
           "No setpoint adjustment needed. Keep SKOV humidity setpoint at " +
           r1(setpoint) + " % after setting the new offsets.";
+        setpointText.textContent = setpointMsg;
       } else {
         const avgResidual = residuals.reduce((a,b)=>a+b,0) / residuals.length;
-        const newSetpoint = setpoint + avgResidual;
+        newSetpoint = setpoint + avgResidual;
         setpointBox.style.display = "block";
-        setpointText.textContent =
+        setpointMsg =
           "Current setpoint: " + r1(setpoint) + " %. " +
           "Suggested new setpoint: " + r1(newSetpoint) +
           " % to help the house stabilise around " + r1(desired) +
           " % on the Fluke once offsets are set.";
+        setpointText.textContent = setpointMsg;
       }
 
-      // Confidence indicator
-      calcConfidence(s1, s2);
+      // Confidence indicator (and data for summary)
+      const conf = calcConfidence(s1, s2);
+
+      // Build mini report text
+      const summaryBox  = document.getElementById("summaryBox");
+      const summaryText = document.getElementById("summaryText");
+      const lines = [];
+
+      lines.push("SKOV Humidity Mini Report");
+      lines.push("-------------------------");
+      lines.push("Target Fluke humidity: " + r1(desired) + " %");
+      lines.push("Current SKOV setpoint: " + r1(setpoint) + " %");
+      if (newSetpoint !== null && Math.abs(newSetpoint - setpoint) > 0.05) {
+        lines.push("Suggested SKOV setpoint: " + r1(newSetpoint) + " %");
+      }
+      lines.push("");
+
+      if (s1.used) {
+        lines.push("Sensor 1:");
+        lines.push("  Fluke: " + r1(s1.fluke) + " %   SKOV: " + r1(s1.skov) + " %");
+        lines.push("  Set offset to: " + (s1.newOffset >= 0 ? "+" : "") + r1(s1.newOffset));
+        lines.push("");
+      }
+
+      if (s2.used) {
+        lines.push("Sensor 2:");
+        lines.push("  Fluke: " + r1(s2.fluke) + " %   SKOV: " + r1(s2.skov) + " %");
+        lines.push("  Set offset to: " + (s2.newOffset >= 0 ? "+" : "") + r1(s2.newOffset));
+        lines.push("");
+      }
+
+      if (!s1.used && !s2.used) {
+        lines.push("No valid sensor readings entered.");
+        lines.push("");
+      }
+
+      if (conf.level) {
+        lines.push("Confidence: " + conf.level.toUpperCase());
+        if (conf.reasons.length > 0) {
+          lines.push("Notes: " + conf.reasons.join(" "));
+        }
+      }
+
+      summaryText.textContent = lines.join("\n");
+      summaryBox.style.display = "block";
+
+      // Scroll down to the mini report to make screenshot easy
+      summaryBox.scrollIntoView({ behavior: "smooth" });
     }
   </script>
 
